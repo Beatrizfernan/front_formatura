@@ -1,103 +1,213 @@
-import Image from "next/image";
+"use client"
+
+import type React from "react"
+
+import { useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Spinner } from "@/components/ui/spinner"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertCircle, Download, MapPin, Users, Calendar, Plus } from "lucide-react"
+import { SeatMap } from "@/components/seat-map"
+import { AllocationStats } from "@/components/allocation-stats"
+import type { AllocationResponse } from "@/types/allocation"
+import { API_URL } from "./layout"
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [planilhaUrl, setPlanilhaUrl] = useState("")
+  const [localId, setLocalId] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<AllocationResponse | null>(null)
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      const response = await fetch(`${API_URL}/api/planilha/processar`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          planilha_url: planilhaUrl,
+          local_id: localId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Erro ao processar planilha")
+      }
+
+      setResult(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro desconhecido")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownload = () => {
+    if (!result) return
+    console.log("Download functionality to be implemented")
+  }
+
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 p-4 md:p-8">
+      <div className="mx-auto max-w-7xl space-y-8">
+        {/* Header com botão Novo Local */}
+        <div className="flex items-start justify-between gap-6">
+          <div className="flex-1 space-y-2">
+            <h1 className="text-4xl font-bold tracking-tight">
+              Sistema de Alocação de Assentos
+            </h1>
+            <p className="text-muted-foreground text-lg">
+              Gerencie a distribuição de assentos para formaturas
+            </p>
+          </div>
+          
+          <Button 
+            variant="outline"
+            size="lg"
+            onClick={() => window.location.href = '/criar-local'}
+            className="shrink-0"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            <Plus className="mr-2 h-5 w-5" />
+            Novo Local
+          </Button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+
+        {/* Form Card */}
+        <Card className="shadow-lg">
+          <CardHeader>
+            <CardTitle>Processar Planilha</CardTitle>
+            <CardDescription>
+              Insira a URL da planilha do Google Sheets e o ID do local para gerar a alocação
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="planilha-url">URL da Planilha (CSV Export)</Label>
+                <Input
+                  id="planilha-url"
+                  type="url"
+                  placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv"
+                  value={planilhaUrl}
+                  onChange={(e) => setPlanilhaUrl(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="local-id">ID do Local</Label>
+                <Input
+                  id="local-id"
+                  type="text"
+                  placeholder="68e13b6f263e394a94c813a7"
+                  value={localId}
+                  onChange={(e) => setLocalId(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? (
+                  <>
+                    <Spinner className="mr-2 h-4 w-4" />
+                    Processando...
+                  </>
+                ) : (
+                  "Gerar Alocação"
+                )}
+              </Button>
+            </form>
+
+            {error && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Results */}
+        {result && (
+          <div className="space-y-6">
+            {/* Stats Cards */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Formatura</CardTitle>
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-balance">{result.formatura.nome}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {new Date(result.formatura.data).toLocaleDateString("pt-BR")}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Local</CardTitle>
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{result.formatura.local}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Taxa de ocupação: {result.alocacao.taxa_ocupacao}
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Formandos</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{result.formatura.total_formandos}</div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {result.alocacao.total_alocado} assentos alocados
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Allocation Details */}
+            <AllocationStats details={result.alocacao.detalhes} />
+
+            {/* Seat Map */}
+            <Card className="shadow-lg">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Mapa de Assentos</CardTitle>
+                  <CardDescription>Visualização da distribuição de assentos por curso</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleDownload}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Exportar
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <SeatMap details={result.alocacao.detalhes} assentosVazios={result.alocacao.assentos_vazios} />
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
+    </main>
+  )
 }
