@@ -115,7 +115,8 @@ export function SeatMap({ details, assentosVazios }: SeatMapProps) {
         const numB = Number.parseInt(b) || 0
         return numA - numB
       })
-      .map(([_, rows]) => rows)
+      .map(([, rows]) => rows)
+
 
     return { rowGroups: groupedArray, courseColors: colors, totalEmpty: emptyCount }
   }, [details, assentosVazios])

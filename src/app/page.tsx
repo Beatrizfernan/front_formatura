@@ -187,7 +187,8 @@ export default function Home() {
       const groupedArray = Array.from(grouped.entries())
         .sort(([a], [b]) => (parseInt(a) || 0) - (parseInt(b) || 0))
       
-      groupedArray.forEach(([_, rows]) => {
+        groupedArray.forEach(([, rows]) => {
+
         html += '<div style="display: flex; gap: 48px; border-bottom: 1px solid #e5e7eb; padding-bottom: 24px;">'
         
         rows.forEach(([rowName, seatMap]) => {
