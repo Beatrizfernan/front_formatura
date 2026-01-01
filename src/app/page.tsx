@@ -359,14 +359,7 @@ export default function Home() {
                     ))}
                   </SelectContent>
                 </Select>
-                {locais.length === 0 && !loadingLocais && (
-                  <p className="text-sm text-muted-foreground">
-                    Nenhum local cadastrado.{" "}
-                    <a href="/criar-local" className="text-primary hover:underline">
-                      Criar novo local
-                    </a>
-                  </p>
-                )}
+                
               </div>
 
               <Button type="submit" className="w-full" disabled={loading || !localId}>
