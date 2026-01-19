@@ -169,289 +169,190 @@ export default function Home() {
     setModifiedSeatMap(newSeatMap)
   }
 
-  const handleDownload = async () => {
-    if (!result || !result.alocacao?.detalhes) return
+  interface DomToImageOptions {
+    quality?: number;
+    bgcolor?: string;
+    scale?: number;
+    width?: number;
+    height?: number;
+    style?: Record<string, string>;
+  }
   
-    setLoadingPdf(true)
+  const handleDownload = async () => {
+    if (!result || !result.alocacao?.detalhes) return;
+  
+    setLoadingPdf(true);
     
     try {
-      const domtoimage = (await import('dom-to-image-more')).default
+      // Importação dinâmica para evitar problemas de SSR se necessário
+      const domtoimage = (await import('dom-to-image-more')).default;
       
-      // Cria container temporário
-      const tempContainer = document.createElement('div')
-      tempContainer.style.position = 'absolute'
-      tempContainer.style.left = '-9999px'
-      tempContainer.style.top = '0'
-      tempContainer.style.backgroundColor = '#ffffff'
-      tempContainer.style.padding = '15px'
-      tempContainer.style.width = 'max-content'
+      // 1. Preparação dos dados respeitando o estado atual (Drag & Drop)
+      const rowMap: Map<string, Map<number, SeatInfo>> = modifiedSeatMap || new Map();
       
-      // Prepara cores dos cursos
-      const COURSE_COLORS = [
-        'rgb(59, 130, 246)', // blue
-        'rgb(16, 185, 129)', // emerald
-        'rgb(245, 158, 11)', // amber
-        'rgb(168, 85, 247)', // purple
-        'rgb(244, 63, 94)',  // rose
-        'rgb(6, 182, 212)',  // cyan
-        'rgb(249, 115, 22)', // orange
-        'rgb(236, 72, 153)', // pink
-      ]
-      
-      const courseColors: Record<string, string> = {}
-      result.alocacao.detalhes.forEach((detail, index) => {
-        courseColors[detail.curso] = COURSE_COLORS[index % COURSE_COLORS.length]
-      })
-      
-      // Constrói mapa de assentos - usa modifiedSeatMap se disponível
-      let rowMap: Map<string, Map<number, SeatInfo>>
-      
-      if (modifiedSeatMap) {
-        rowMap = modifiedSeatMap
-      } else {
-        const tempRowMap = new Map<string, Map<number, SeatInfo>>()
-        
+      if (!modifiedSeatMap) {
         result.alocacao.detalhes.forEach((detail) => {
           detail.filas.forEach((fila) => {
-            if (!tempRowMap.has(fila.fila)) {
-              tempRowMap.set(fila.fila, new Map())
-            }
-            const row = tempRowMap.get(fila.fila)!
-            const [start, end] = fila.range.split("-").map(Number)
+            if (!rowMap.has(fila.fila)) rowMap.set(fila.fila, new Map());
+            const row = rowMap.get(fila.fila)!;
+            const [start, end] = fila.range.split("-").map(Number);
             for (let i = start; i <= end; i++) {
-              row.set(i, { 
-                number: i,
-                curso: detail.curso, 
-                color: '',
-                isEmpty: false 
-              })
+              row.set(i, { number: i, curso: detail.curso, color: '', isEmpty: false });
             }
-          })
-        })
-        
+          });
+        });
         // Adiciona assentos vazios
-        if (result.alocacao.assentos_vazios) {
-          result.alocacao.assentos_vazios.forEach((filaVazia) => {
-            if (!tempRowMap.has(filaVazia.fila)) {
-              tempRowMap.set(filaVazia.fila, new Map())
-            }
-            const row = tempRowMap.get(filaVazia.fila)!
-            filaVazia.assentos_vazios.forEach((seatNumber) => {
-              row.set(seatNumber, { 
-                number: seatNumber,
-                curso: 'Vazio', 
-                color: '',
-                isEmpty: true 
-              })
-            })
-          })
-        }
-        
-        rowMap = tempRowMap
+        result.alocacao.assentos_vazios?.forEach((fVazia) => {
+          if (!rowMap.has(fVazia.fila)) rowMap.set(fVazia.fila, new Map());
+          const row = rowMap.get(fVazia.fila)!;
+          fVazia.assentos_vazios.forEach(n => row.set(n, { number: n, curso: 'Vazio', color: '', isEmpty: true }));
+        });
       }
-      
-      // Cria HTML com elementos MUITO MAIORES para máximo aproveitamento
+  
+      // 2. Agrupamento e Ordenação Visual
+      const rowsArray = Array.from(rowMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+  
+      const grouped = new Map<string, Array<[string, Map<number, SeatInfo>]>>();
+      rowsArray.forEach(([name, seats]) => {
+        const rowNumber = name.match(/^\d+/)?.[0] || name;
+        if (!grouped.has(rowNumber)) grouped.set(rowNumber, []);
+        grouped.get(rowNumber)!.push([name, seats]);
+      });
+  
+      const groupedArray = Array.from(grouped.entries())
+        .sort(([a], [b]) => (parseInt(a) || 0) - (parseInt(b) || 0));
+  
+      // 3. Configuração de Cores
+      const COURSE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#f43f5e', '#06b6d4', '#f97316', '#ec4899'];
+      const courseColors: Record<string, string> = {};
+      result.alocacao.detalhes.forEach((d, i) => courseColors[d.curso] = COURSE_COLORS[i % COURSE_COLORS.length]);
+  
+      // 4. Construção do HTML
       let html = `
-        <div style="font-family: system-ui, -apple-system, sans-serif;">
-          <!-- Legenda -->
-          <div style="display: flex; gap: 28px; justify-content: center; padding: 20px; background: #f3f4f6; border-radius: 12px; margin-bottom: 35px; flex-wrap: wrap;">
-            ${result.alocacao.detalhes.map(detail => `
-              <div style="display: flex; align-items: center; gap: 14px;">
-                <div style="width: 32px; height: 32px; border-radius: 6px; background: ${courseColors[detail.curso]};"></div>
-                <span style="font-size: 24px; font-weight: 600;">${detail.curso}</span>
-                <span style="background: #e5e7eb; padding: 5px 14px; border-radius: 18px; font-size: 20px; font-weight: 600;">${detail.total_assentos}</span>
-              </div>
-            `).join('')}
-          </div>
-          
-          <!-- Palco -->
-          <div style="display: flex; justify-content: center; margin-bottom: 40px;">
-            <div style="background: #f3f4f6; padding: 16px 80px; border-radius: 14px 14px 0 0; border: 4px solid #d1d5db; border-bottom: 0;">
-              <span style="font-size: 28px; font-weight: 700; color: #6b7280; letter-spacing: 3px;">PALCO</span>
+        <div style="font-family: 'Helvetica', 'Arial', sans-serif; background: white; padding: 40px; width: fit-content; min-width: 1100px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="font-size: 32px; margin: 0; color: #111;">${result.formatura.nome}</h1>
+            <p style="font-size: 18px; color: #666; margin: 5px 0 20px 0;">Local: ${result.formatura.local}</p>
+            
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px;">
+              ${result.alocacao.detalhes.map(d => `
+                <div style="display: flex; align-items: center; gap: 6px; background: #f3f4f6; padding: 6px 12px; border-radius: 6px; border: 1px solid #e5e7eb;">
+                  <div style="width: 14px; height: 14px; background: ${courseColors[d.curso]}; border-radius: 3px;"></div>
+                  <span style="font-size: 13px; font-weight: 600;">${d.curso}</span>
+                </div>
+              `).join('')}
+            </div>
+  
+            <div style="display: flex; justify-content: center; margin-bottom: 40px;">
+              <div style="background: #1f2937; color: white; padding: 10px 120px; border-radius: 4px; font-weight: bold; letter-spacing: 4px;">PALCO</div>
             </div>
           </div>
-          
-          <!-- Filas -->
-          <div style="display: flex; flex-direction: column; gap: 45px;">
-      `
-      
-      // Agrupa filas por número
-      const rowsArray = Array.from(rowMap.entries()).sort(([a], [b]) => a.localeCompare(b))
-      const grouped = new Map<string, Array<[string, Map<number, SeatInfo>]>>()
-      
-      rowsArray.forEach(([name, seats]) => {
-        const rowNumber = name.match(/^\d+/)?.[0] || name
-        if (!grouped.has(rowNumber)) {
-          grouped.set(rowNumber, [])
-        }
-        grouped.get(rowNumber)!.push([name, seats])
-      })
-      
-      const groupedArray = Array.from(grouped.entries())
-        .sort(([a], [b]) => (parseInt(a) || 0) - (parseInt(b) || 0))
-      
-      groupedArray.forEach(([, rows]) => {
-        html += '<div style="display: flex; gap: 70px; border-bottom: 2px solid #e5e7eb; padding-bottom: 35px;">'
+  
+          <div style="display: flex; flex-direction: column; gap: 30px;">
+      `;
+  
+      groupedArray.forEach(([, rowsInGroup]) => {
+        html += `<div style="display: flex; gap: 20px; align-items: stretch; width: 100%;">`;
         
-        rows.forEach(([rowName, seatMap]) => {
-          const maxSeat = Math.max(...Array.from(seatMap.keys()))
-          
+        rowsInGroup.forEach(([rowName, seatMap]) => {
+          const sortedSeats = Array.from(seatMap.keys()).sort((a, b) => a - b);
           html += `
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 18px;">
-              <div style="border: 3px solid #d1d5db; padding: 8px 20px; border-radius: 8px; font-weight: 700; font-size: 22px; background: #ffffff;">
-                Fila ${rowName}
+            <div style="flex: 1; display: flex; flex-direction: column; border: 2px solid #f0f0f0; border-radius: 8px; background: #fafafa; min-width: 250px;">
+              <div style="background: #f0f0f0; text-align: center; padding: 6px; font-weight: bold; font-size: 15px; border-bottom: 2px solid #e5e5e5;">
+                FILA ${rowName}
               </div>
-              <div style="display: flex; gap: 12px;">
-          `
-          
-          for (let i = 1; i <= maxSeat; i++) {
-            const seat = seatMap.get(i)
-            if (seat) {
-              const color = seat.isEmpty ? '#f3f4f6' : courseColors[seat.curso]
-              const borderStyle = seat.isEmpty ? '4px dashed #9ca3af' : '4px solid rgba(0,0,0,0.2)'
-              const textColor = seat.isEmpty ? '#6b7280' : '#ffffff'
               
-              html += `
-                <div style="
-                  width: 180px; 
-                  height: 220px; 
-                  border-radius: 16px; 
-                  background: ${color}; 
-                  border: ${borderStyle};
-                  display: flex; 
-                  flex-direction: column; 
-                  align-items: center; 
-                  justify-content: center;
-                  position: relative;
-                  box-shadow: ${seat.isEmpty ? 'none' : '0 10px 20px rgba(0,0,0,0.2)'};
-                  padding: 14px;
-                ">
-                  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="${textColor}" stroke-width="2.5" style="margin-bottom: 12px;">
-                    <path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/>
-                    <path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/>
-                  </svg>
-                  
-                  <!-- Número da cadeira -->
-                  <span style="font-size: 36px; font-weight: 700; color: ${textColor}; line-height: 1.2; margin-top: 6px;">${i}</span>
-                  
-                  <!-- Nome do curso (só se não for vazio) -->
-                  ${!seat.isEmpty ? `
-                    <div style="font-size: 16px; font-weight: 600; color: ${textColor}; opacity: 0.96; margin-top: 12px; line-height: 1.3; text-align: center; max-width: 160px; overflow: hidden; word-break: break-word; text-transform: uppercase;">
-                      ${seat.curso}
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; justify-content: center; align-content: flex-start; flex-grow: 1;">
+                ${sortedSeats.map(num => {
+                  const seat = seatMap.get(num)!;
+                  const color = seat.isEmpty ? '#e5e7eb' : courseColors[seat.curso];
+                  return `
+                    <div style="
+                      width: 48px; 
+                      min-height: 60px; 
+                      background: ${color}; 
+                      border-radius: 5px; 
+                      display: flex; 
+                      flex-direction: column; 
+                      align-items: center; 
+                      justify-content: center;
+                      padding: 4px;
+                      border: 1px solid rgba(0,0,0,0.05);
+                    ">
+                      <span style="font-size: 16px; font-weight: 800; color: ${seat.isEmpty ? '#999' : '#fff'};">${num}</span>
+                      <span style="
+                        font-size: 7px; 
+                        color: ${seat.isEmpty ? 'transparent' : '#fff'}; 
+                        text-align: center; 
+                        width: 100%; 
+                        word-break: break-word; 
+                        margin-top: 2px;
+                        line-height: 1;
+                        font-weight: bold;
+                      ">
+                        ${seat.isEmpty ? '' : seat.curso}
+                      </span>
                     </div>
-                  ` : ''}
-                  
-                  <div style="position: absolute; bottom: -10px; width: 100px; height: 14px; border-radius: 999px; background: rgba(0,0,0,0.28);"></div>
-                </div>
-              `
-            }
-          }
-          
-          html += '</div></div>'
-        })
-        
-        html += '</div>'
-      })
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        });
+        html += `</div>`;
+      });
+  
+      html += `</div></div>`;
+  
+      // 5. Captura da Imagem e Geração do PDF
+      const tempContainer = document.createElement('div');
+      tempContainer.style.position = 'fixed';
+      tempContainer.style.left = '-10000px';
+      tempContainer.style.top = '0';
+      tempContainer.innerHTML = html;
+      document.body.appendChild(tempContainer);
+  
+      const options: DomToImageOptions = { 
+        quality: 1, 
+        bgcolor: '#ffffff', 
+        scale: 2 
+      };
+  
+      const dataUrl = await domtoimage.toPng(tempContainer, options);
+      document.body.removeChild(tempContainer);
+  
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
+      const img = new Image();
+      img.src = dataUrl;
+  
+      // Aguarda o carregamento da imagem com Promise tipada
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+      });
+  
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const ratio = img.width / img.height;
       
-      html += '</div></div>'
+      let w = pageWidth - 20;
+      let h = w / ratio;
       
-      tempContainer.innerHTML = html
-      document.body.appendChild(tempContainer)
-      
-      // Aguarda renderização completa
-      await new Promise(resolve => setTimeout(resolve, 500))
-      
-      // Captura dimensões ANTES da rotação
-      const originalWidth = tempContainer.offsetWidth
-      const originalHeight = tempContainer.offsetHeight
-      
-      console.log('Dimensões originais:', { originalWidth, originalHeight })
-      
-      // Cria um wrapper maior para comportar a rotação
-      const rotationWrapper = document.createElement('div')
-      rotationWrapper.style.position = 'absolute'
-      rotationWrapper.style.left = '-9999px'
-      rotationWrapper.style.top = '0'
-      rotationWrapper.style.backgroundColor = '#ffffff'
-      
-      // Define dimensões do wrapper (invertidas para acomodar a rotação)
-      rotationWrapper.style.width = `${originalHeight}px`
-      rotationWrapper.style.height = `${originalWidth}px`
-      rotationWrapper.style.display = 'flex'
-      rotationWrapper.style.alignItems = 'center'
-      rotationWrapper.style.justifyContent = 'center'
-      rotationWrapper.style.overflow = 'visible'
-      
-      // Move o conteúdo para o wrapper
-      document.body.appendChild(rotationWrapper)
-      rotationWrapper.appendChild(tempContainer)
-      
-      // Remove estilos de posicionamento do container original
-      tempContainer.style.position = 'relative'
-      tempContainer.style.left = '0'
-      tempContainer.style.top = '0'
-      
-      // Aplica rotação 90 graus
-      tempContainer.style.transform = 'rotate(90deg)'
-      tempContainer.style.transformOrigin = 'center center'
-      
-      // Aguarda aplicação da transformação
-      await new Promise(resolve => setTimeout(resolve, 300))
-      
-      console.log('Dimensões do wrapper (para captura):', { 
-        width: rotationWrapper.offsetWidth, 
-        height: rotationWrapper.offsetHeight 
-      })
-      
-      // Gera imagem do wrapper completo
-      const dataUrl = await domtoimage.toPng(rotationWrapper, {
-        quality: 1,
-        bgcolor: '#ffffff',
-        width: originalHeight,
-        height: originalWidth,
-      })
-      
-      // Remove elementos temporários
-      document.body.removeChild(rotationWrapper)
-      
-      // Cria PDF em tamanho A3
-      const img = new Image()
-      img.src = dataUrl
-      await new Promise((resolve) => { img.onload = resolve })
-      
-      // Formato A3 (297 x 420 mm) em portrait (vertical)
-      const pdf = new jsPDF('p', 'mm', 'a3')
-      const pageWidth = pdf.internal.pageSize.getWidth()   // 297mm
-      const pageHeight = pdf.internal.pageSize.getHeight() // 420mm
-      
-      console.log('Dimensões PDF A3:', { pageWidth, pageHeight })
-      console.log('Dimensões da imagem:', { width: img.width, height: img.height })
-      
-      // Calcula escala para MÁXIMO aproveitamento do espaço (margem mínima)
-      const margin = 2
-      const availableWidth = pageWidth - (margin * 2)
-      const availableHeight = pageHeight - (margin * 2)
-      
-      const scale = Math.min(availableWidth / img.width, availableHeight / img.height)
-      const scaledWidth = img.width * scale
-      const scaledHeight = img.height * scale
-      
-      // Centraliza na página
-      const x = (pageWidth - scaledWidth) / 2
-      const y = (pageHeight - scaledHeight) / 2
-      
-      console.log('Posição e escala:', { x, y, scaledWidth, scaledHeight, scale })
-      
-      pdf.addImage(dataUrl, 'PNG', x, y, scaledWidth, scaledHeight)
-      pdf.save(`mapa-assentos-${result.formatura.nome.replace(/\s+/g, '-')}.pdf`)
-      
-    } catch (error) {
-      console.error('Erro ao gerar PDF:', error)
-      setError('Erro ao gerar PDF. Tente novamente.')
+      if (h > pageHeight - 20) {
+        h = pageHeight - 20;
+        w = h * ratio;
+      }
+  
+      pdf.addImage(dataUrl, 'PNG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
+      pdf.save(`mapa-assentos-${result.formatura.nome.replace(/\s+/g, '-')}.pdf`);
+  
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err);
+      setError('Não foi possível gerar o PDF. O mapa pode ser muito grande para o navegador processar.');
     } finally {
-      setLoadingPdf(false)
+      setLoadingPdf(false);
     }
-  }
+  };
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 p-4 md:p-8">
       <div className="mx-auto max-w-7xl space-y-8">
