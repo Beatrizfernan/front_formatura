@@ -22,4 +22,4 @@ export default function RootLayout({
     </html>
   )
 }
-export const API_URL = "https://formatura-backend-2.onrender.com/";
+export const API_URL = "http://127.0.0.1:5000";

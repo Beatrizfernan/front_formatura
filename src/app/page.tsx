@@ -179,180 +179,65 @@ export default function Home() {
   }
   
   const handleDownload = async () => {
-    if (!result || !result.alocacao?.detalhes) return;
-  
+    if (!result || !result.formatura?.id) {
+      setError('Dados da formatura não disponíveis');
+      return;
+    }
+
     setLoadingPdf(true);
     
     try {
-      // Importação dinâmica para evitar problemas de SSR se necessário
-      const domtoimage = (await import('dom-to-image-more')).default;
+      const formaturaId = result.formatura.id;
       
-      // 1. Preparação dos dados respeitando o estado atual (Drag & Drop)
-      const rowMap: Map<string, Map<number, SeatInfo>> = modifiedSeatMap || new Map();
-      
-      if (!modifiedSeatMap) {
-        result.alocacao.detalhes.forEach((detail) => {
-          detail.filas.forEach((fila) => {
-            if (!rowMap.has(fila.fila)) rowMap.set(fila.fila, new Map());
-            const row = rowMap.get(fila.fila)!;
-            const [start, end] = fila.range.split("-").map(Number);
-            for (let i = start; i <= end; i++) {
-              row.set(i, { number: i, curso: detail.curso, color: '', isEmpty: false });
-            }
-          });
-        });
-        // Adiciona assentos vazios
-        result.alocacao.assentos_vazios?.forEach((fVazia) => {
-          if (!rowMap.has(fVazia.fila)) rowMap.set(fVazia.fila, new Map());
-          const row = rowMap.get(fVazia.fila)!;
-          fVazia.assentos_vazios.forEach(n => row.set(n, { number: n, curso: 'Vazio', color: '', isEmpty: true }));
-        });
+      // Chama endpoint do backend
+      const response = await fetch(
+        `${API_URL}/api/pdf/mapa-assentos/${formaturaId}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/pdf',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao gerar PDF');
       }
-  
-      // 2. Agrupamento e Ordenação Visual
-      const rowsArray = Array.from(rowMap.entries())
-        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
-  
-      const grouped = new Map<string, Array<[string, Map<number, SeatInfo>]>>();
-      rowsArray.forEach(([name, seats]) => {
-        const rowNumber = name.match(/^\d+/)?.[0] || name;
-        if (!grouped.has(rowNumber)) grouped.set(rowNumber, []);
-        grouped.get(rowNumber)!.push([name, seats]);
-      });
-  
-      const groupedArray = Array.from(grouped.entries())
-        .sort(([a], [b]) => (parseInt(a) || 0) - (parseInt(b) || 0));
-  
-      // 3. Configuração de Cores
-      const COURSE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#f43f5e', '#06b6d4', '#f97316', '#ec4899'];
-      const courseColors: Record<string, string> = {};
-      result.alocacao.detalhes.forEach((d, i) => courseColors[d.curso] = COURSE_COLORS[i % COURSE_COLORS.length]);
-  
-      // 4. Construção do HTML
-      let html = `
-        <div style="font-family: 'Helvetica', 'Arial', sans-serif; background: white; padding: 40px; width: fit-content; min-width: 1100px;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="font-size: 32px; margin: 0; color: #111;">${result.formatura.nome}</h1>
-            <p style="font-size: 18px; color: #666; margin: 5px 0 20px 0;">Local: ${result.formatura.local}</p>
-            
-            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 30px;">
-              ${result.alocacao.detalhes.map(d => `
-                <div style="display: flex; align-items: center; gap: 6px; background: #f3f4f6; padding: 6px 12px; border-radius: 6px; border: 1px solid #e5e7eb;">
-                  <div style="width: 14px; height: 14px; background: ${courseColors[d.curso]}; border-radius: 3px;"></div>
-                  <span style="font-size: 13px; font-weight: 600;">${d.curso}</span>
-                </div>
-              `).join('')}
-            </div>
-  
-            <div style="display: flex; justify-content: center; margin-bottom: 40px;">
-              <div style="background: #1f2937; color: white; padding: 10px 120px; border-radius: 4px; font-weight: bold; letter-spacing: 4px;">PALCO</div>
-            </div>
-          </div>
-  
-          <div style="display: flex; flex-direction: column; gap: 30px;">
-      `;
-  
-      groupedArray.forEach(([, rowsInGroup]) => {
-        html += `<div style="display: flex; gap: 20px; align-items: stretch; width: 100%;">`;
-        
-        rowsInGroup.forEach(([rowName, seatMap]) => {
-          const sortedSeats = Array.from(seatMap.keys()).sort((a, b) => a - b);
-          html += `
-            <div style="flex: 1; display: flex; flex-direction: column; border: 2px solid #f0f0f0; border-radius: 8px; background: #fafafa; min-width: 250px;">
-              <div style="background: #f0f0f0; text-align: center; padding: 6px; font-weight: bold; font-size: 15px; border-bottom: 2px solid #e5e5e5;">
-                FILA ${rowName}
-              </div>
-              
-              <div style="display: flex; flex-wrap: wrap; gap: 6px; padding: 12px; justify-content: center; align-content: flex-start; flex-grow: 1;">
-                ${sortedSeats.map(num => {
-                  const seat = seatMap.get(num)!;
-                  const color = seat.isEmpty ? '#e5e7eb' : courseColors[seat.curso];
-                  return `
-                    <div style="
-                      width: 48px; 
-                      min-height: 60px; 
-                      background: ${color}; 
-                      border-radius: 5px; 
-                      display: flex; 
-                      flex-direction: column; 
-                      align-items: center; 
-                      justify-content: center;
-                      padding: 4px;
-                      border: 1px solid rgba(0,0,0,0.05);
-                    ">
-                      <span style="font-size: 16px; font-weight: 800; color: ${seat.isEmpty ? '#999' : '#fff'};">${num}</span>
-                      <span style="
-                        font-size: 7px; 
-                        color: ${seat.isEmpty ? 'transparent' : '#fff'}; 
-                        text-align: center; 
-                        width: 100%; 
-                        word-break: break-word; 
-                        margin-top: 2px;
-                        line-height: 1;
-                        font-weight: bold;
-                      ">
-                        ${seat.isEmpty ? '' : seat.curso}
-                      </span>
-                    </div>
-                  `;
-                }).join('')}
-              </div>
-            </div>
-          `;
-        });
-        html += `</div>`;
-      });
-  
-      html += `</div></div>`;
-  
-      // 5. Captura da Imagem e Geração do PDF
-      const tempContainer = document.createElement('div');
-      tempContainer.style.position = 'fixed';
-      tempContainer.style.left = '-10000px';
-      tempContainer.style.top = '0';
-      tempContainer.innerHTML = html;
-      document.body.appendChild(tempContainer);
-  
-      const options: DomToImageOptions = { 
-        quality: 1, 
-        bgcolor: '#ffffff', 
-        scale: 2 
-      };
-  
-      const dataUrl = await domtoimage.toPng(tempContainer, options);
-      document.body.removeChild(tempContainer);
-  
-      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a3' });
-      const img = new Image();
-      img.src = dataUrl;
-  
-      // Aguarda o carregamento da imagem com Promise tipada
-      await new Promise<void>((resolve) => {
-        img.onload = () => resolve();
-      });
-  
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const ratio = img.width / img.height;
+
+      // Converte resposta em blob
+      const blob = await response.blob();
       
-      let w = pageWidth - 20;
-      let h = w / ratio;
+      // Cria URL temporária para download
+      const url = window.URL.createObjectURL(blob);
       
-      if (h > pageHeight - 20) {
-        h = pageHeight - 20;
-        w = h * ratio;
-      }
-  
-      pdf.addImage(dataUrl, 'PNG', (pageWidth - w) / 2, (pageHeight - h) / 2, w, h);
-      pdf.save(`mapa-assentos-${result.formatura.nome.replace(/\s+/g, '-')}.pdf`);
-  
+      // Cria link de download
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `mapa-assentos-${result.formatura.nome.replace(/\s+/g, '-')}.pdf`;
+      
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
     } catch (err) {
-      console.error('Erro ao gerar PDF:', err);
-      setError('Não foi possível gerar o PDF. O mapa pode ser muito grande para o navegador processar.');
+      console.error('Erro ao baixar PDF:', err);
+      setError(
+        err instanceof Error 
+          ? err.message 
+          : 'Não foi possível gerar o PDF. Tente novamente.'
+      );
+      
+      setTimeout(() => setError(null), 5000);
     } finally {
       setLoadingPdf(false);
     }
   };
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 p-4 md:p-8">
       <div className="mx-auto max-w-7xl space-y-8">
