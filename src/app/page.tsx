@@ -169,14 +169,7 @@ export default function Home() {
     setModifiedSeatMap(newSeatMap)
   }
 
-  interface DomToImageOptions {
-    quality?: number;
-    bgcolor?: string;
-    scale?: number;
-    width?: number;
-    height?: number;
-    style?: Record<string, string>;
-  }
+ 
   
   const handleDownload = async () => {
     if (!result || !result.formatura?.id) {
