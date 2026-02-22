@@ -1,229 +1,175 @@
 "use client"
-
 import { useEffect, useState, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
-import { Loader2, AlertCircle, GripVertical, ArrowUpDown } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Loader2, AlertCircle, GripVertical, ArrowUpDown, Download, RotateCcw } from "lucide-react"
 import { API_URL } from "@/app/layout"
 
-// ─────────────────────────────────────────────
-// Tipos
-// ─────────────────────────────────────────────
+// ─── Tipos ───────────────────────────────────────────────────────────────────
+interface FilaDetail { fila: string; assentos: number; range: string }
+interface CourseDetail { curso: string; curso_id: string; abreviacao?: string; total_assentos: number; filas: FilaDetail[] }
+interface EmptySeats { fila: string; assentos_vazios: number[]; total_vazios: number }
+interface Segment { curso_id: string; nome: string; abrev: string; start: number; end: number; count: number; colorIdx: number }
+interface RowData { nome: string; capacity: number; segments: Segment[] }
 
-interface FilaDetail {
-  fila: string
-  assentos: number
-  range: string
-}
-
-interface CourseDetail {
-  curso: string
-  curso_id: string
-  abreviacao?: string
-  total_assentos: number
-  filas: FilaDetail[]
-}
-
-interface EmptySeats {
-  fila: string
-  assentos_vazios: number[]
-  total_vazios: number
-}
-
-interface Segment {
-  curso_id: string
-  nome: string
-  abrev: string
-  start: number
-  end: number
-  count: number
-  colorIdx: number
-}
-
-interface RowData {
-  nome: string
-  capacity: number
-  segments: Segment[]
-}
-
-// ─────────────────────────────────────────────
-// Paleta de cores
-// ─────────────────────────────────────────────
-
+// ─── Paleta de cursos ─────────────────────────────────────────────────────────
 const PALETTE = [
-  { light: "bg-blue-100",    dark: "bg-blue-500",    text: "text-blue-900",    border: "border-blue-300",    hex: "#3b82f6" },
-  { light: "bg-emerald-100", dark: "bg-emerald-500", text: "text-emerald-900", border: "border-emerald-300", hex: "#10b981" },
-  { light: "bg-amber-100",   dark: "bg-amber-500",   text: "text-amber-900",   border: "border-amber-300",   hex: "#f59e0b" },
-  { light: "bg-purple-100",  dark: "bg-purple-500",  text: "text-purple-900",  border: "border-purple-300",  hex: "#a855f7" },
-  { light: "bg-rose-100",    dark: "bg-rose-500",    text: "text-rose-900",    border: "border-rose-300",    hex: "#f43f5e" },
-  { light: "bg-cyan-100",    dark: "bg-cyan-500",    text: "text-cyan-900",    border: "border-cyan-300",    hex: "#06b6d4" },
-  { light: "bg-orange-100",  dark: "bg-orange-500",  text: "text-orange-900",  border: "border-orange-300",  hex: "#f97316" },
-  { light: "bg-pink-100",    dark: "bg-pink-500",    text: "text-pink-900",    border: "border-pink-300",    hex: "#ec4899" },
-  { light: "bg-lime-100",    dark: "bg-lime-600",    text: "text-lime-900",    border: "border-lime-300",    hex: "#65a30d" },
-  { light: "bg-violet-100",  dark: "bg-violet-500",  text: "text-violet-900",  border: "border-violet-300",  hex: "#8b5cf6" },
-  { light: "bg-teal-100",    dark: "bg-teal-500",    text: "text-teal-900",    border: "border-teal-300",    hex: "#14b8a6" },
-  { light: "bg-red-100",     dark: "bg-red-500",     text: "text-red-900",     border: "border-red-300",     hex: "#ef4444" },
-  { light: "bg-indigo-100",  dark: "bg-indigo-500",  text: "text-indigo-900",  border: "border-indigo-300",  hex: "#6366f1" },
-  { light: "bg-sky-100",     dark: "bg-sky-500",     text: "text-sky-900",     border: "border-sky-300",     hex: "#0ea5e9" },
+  { light: "#dbeafe", dark: "#3b82f6",  text: "#1e3a8a" },
+  { light: "#d1fae5", dark: "#10b981",  text: "#064e3b" },
+  { light: "#fef3c7", dark: "#f59e0b",  text: "#78350f" },
+  { light: "#ede9fe", dark: "#8b5cf6",  text: "#4c1d95" },
+  { light: "#ffe4e6", dark: "#f43f5e",  text: "#881337" },
+  { light: "#cffafe", dark: "#06b6d4",  text: "#164e63" },
+  { light: "#ffedd5", dark: "#f97316",  text: "#7c2d12" },
+  { light: "#fce7f3", dark: "#ec4899",  text: "#831843" },
+  { light: "#ecfccb", dark: "#65a30d",  text: "#365314" },
+  { light: "#ede9fe", dark: "#7c3aed",  text: "#3b0764" },
+  { light: "#ccfbf1", dark: "#14b8a6",  text: "#134e4a" },
+  { light: "#fee2e2", dark: "#ef4444",  text: "#7f1d1d" },
+  { light: "#e0e7ff", dark: "#6366f1",  text: "#1e1b4b" },
+  { light: "#e0f2fe", dark: "#0ea5e9",  text: "#0c4a6e" },
 ]
 
 const LINHA_CORREDOR = 12
 
-// ─────────────────────────────────────────────
-// Processamento de dados
-// ─────────────────────────────────────────────
-
-function buildColorIndex(detalhes: CourseDetail[]) {
+function buildColorIndex(detalhes: CourseDetail[]): Record<string, number> {
   const map: Record<string, number> = {}
   detalhes.forEach((d, i) => { map[d.curso_id] = i % PALETTE.length })
   return map
 }
 
-function buildRowMap(
-  detalhes: CourseDetail[],
-  vazios: EmptySeats[],
-  colorIndex: Record<string, number>
-): Map<string, RowData> {
+function buildRowMap(detalhes: CourseDetail[], vazios: EmptySeats[], colorIndex: Record<string, number>): Map<string, RowData> {
   const raw = new Map<string, Map<number, string>>()
-  const capacities = new Map<string, number>()
-
+  const caps = new Map<string, number>()
   detalhes.forEach((d) => {
     d.filas.forEach((f) => {
-      const [s, e] = f.range.includes("-")
-        ? f.range.split("-").map(Number)
-        : [+f.range, +f.range]
+      const [s, e] = f.range.includes("-") ? f.range.split("-").map(Number) : [+f.range, +f.range]
       if (!raw.has(f.fila)) raw.set(f.fila, new Map())
-      const row = raw.get(f.fila)!
-      for (let n = s; n <= e; n++) row.set(n, d.curso_id)
-      capacities.set(f.fila, Math.max(capacities.get(f.fila) || 0, e))
+      for (let n = s; n <= e; n++) raw.get(f.fila)!.set(n, d.curso_id)
+      caps.set(f.fila, Math.max(caps.get(f.fila) || 0, e))
     })
   })
-
   vazios.forEach((v) => {
     if (!raw.has(v.fila)) raw.set(v.fila, new Map())
     const max = v.assentos_vazios.length ? Math.max(...v.assentos_vazios) : 0
-    capacities.set(v.fila, Math.max(capacities.get(v.fila) || 0, max))
+    caps.set(v.fila, Math.max(caps.get(v.fila) || 0, max))
   })
-
   const infoMap: Record<string, CourseDetail> = {}
   detalhes.forEach((d) => { infoMap[d.curso_id] = d })
-
   const result = new Map<string, RowData>()
   raw.forEach((assentos, nome) => {
-    const cap = capacities.get(nome) || 0
+    const cap = caps.get(nome) || 0
     const segments: Segment[] = []
-
-    let cur: string | null = null
-    let start = 0
+    let cur: string | null = null, start = 0
     for (let n = 1; n <= cap; n++) {
       const c = assentos.get(n) || "__empty__"
       if (c !== cur) {
         if (cur && cur !== "__empty__") {
           const d = infoMap[cur]
-          segments.push({
-            curso_id: cur,
-            nome: d?.curso || cur,
-            abrev: d?.abreviacao || (d?.curso || cur).substring(0, 6).toUpperCase(),
-            start, end: n - 1,
-            count: n - 1 - start + 1,
-            colorIdx: colorIndex[cur] ?? 0,
-          })
+          segments.push({ curso_id: cur, nome: d?.curso || cur, abrev: d?.abreviacao || (d?.curso || cur).slice(0, 6).toUpperCase(), start, end: n - 1, count: n - 1 - start + 1, colorIdx: colorIndex[cur] ?? 0 })
         }
-        cur = c
-        start = n
+        cur = c; start = n
       }
     }
     if (cur && cur !== "__empty__" && cap >= start) {
       const d = infoMap[cur]
-      segments.push({
-        curso_id: cur,
-        nome: d?.curso || cur,
-        abrev: d?.abreviacao || (d?.curso || cur).substring(0, 6).toUpperCase(),
-        start, end: cap,
-        count: cap - start + 1,
-        colorIdx: colorIndex[cur] ?? 0,
-      })
+      segments.push({ curso_id: cur, nome: d?.curso || cur, abrev: d?.abreviacao || (d?.curso || cur).slice(0, 6).toUpperCase(), start, end: cap, count: cap - start + 1, colorIdx: colorIndex[cur] ?? 0 })
     }
-
     result.set(nome, { nome, capacity: cap, segments })
   })
-
   return result
 }
 
 function groupRows(rowMap: Map<string, RowData>) {
   const before = new Map<number, RowData[]>()
   const after  = new Map<number, RowData[]>()
-
   rowMap.forEach((row) => {
     const m = row.nome.match(/^(\d+)([A-Z]+)$/)
     if (!m) return
     const num = parseInt(m[1])
-    const target = num <= LINHA_CORREDOR ? before : after
-    if (!target.has(num)) target.set(num, [])
-    target.get(num)!.push(row)
+    const tgt = num <= LINHA_CORREDOR ? before : after
+    if (!tgt.has(num)) tgt.set(num, [])
+    tgt.get(num)!.push(row)
   })
-
   const sort = (m: Map<number, RowData[]>) =>
-    Array.from(m.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([num, rows]) => ({
-        num,
-        rows: rows.sort((a, b) => {
-          const la = a.nome.match(/[A-Z]+$/)?.[0] || ""
-          const lb = b.nome.match(/[A-Z]+$/)?.[0] || ""
-          return la.localeCompare(lb)
-        }),
-      }))
-
+    Array.from(m.entries()).sort(([a], [b]) => a - b).map(([num, rows]) => ({
+      num, rows: rows.sort((a, b) => (a.nome.match(/[A-Z]+$/)?.[0] || "").localeCompare(b.nome.match(/[A-Z]+$/)?.[0] || ""))
+    }))
   return { before: sort(before), after: sort(after) }
 }
 
-// ─────────────────────────────────────────────
-// Componente: banco visual (uma fila)
-// ─────────────────────────────────────────────
+// ─── FilaBanco ────────────────────────────────────────────────────────────────
+function calcFontSize(text: string, maxWidth: number, bold: boolean, maxPt = 10, minPt = 5): number {
+  if (typeof window === "undefined") return 8
+  const ctx = document.createElement("canvas").getContext("2d")!
+  for (let pt = maxPt; pt >= minPt; pt--) {
+    ctx.font = `${bold ? "bold " : ""}${pt}px sans-serif`
+    if (ctx.measureText(text).width <= maxWidth) return pt
+  }
+  return minPt
+}
 
-function FilaBanco({ row, highlighted }: { row: RowData; highlighted: string | null }) {
-  const hasCourse = highlighted
-    ? row.segments.some((s) => s.curso_id === highlighted)
-    : false
-  const isDimmed = highlighted !== null && !hasCourse
-
+function SegmentCell({ seg, widthPct, totalW, highlighted }: {
+  seg: Segment; widthPct: number; totalW: number; highlighted: string | null
+}) {
+  const pal = PALETTE[seg.colorIdx]
+  const isHL = highlighted === seg.curso_id
+  const segW = (widthPct / 100) * totalW
+  const PAD = 4
+  const availW = Math.max(segW - PAD * 2, 1)
+  const fzAbrev = typeof window !== "undefined" ? calcFontSize(seg.abrev, availW, true, 10, 5) : 8
+  const qtdTxt  = `${seg.count} lug`
+  const fzQtd   = typeof window !== "undefined" ? calcFontSize(qtdTxt, availW, false, Math.max(fzAbrev - 1, 4), 4) : 6
+  const bg = isHL ? pal.dark : pal.light
+  const fg = isHL ? "#ffffff" : pal.text
   return (
-    <div className={cn("transition-opacity duration-150", isDimmed && "opacity-20")}>
-      {/* Label */}
-      <div className="flex items-baseline gap-1 mb-0.5">
-        <span className="text-[10px] font-bold text-gray-500 w-10 text-right flex-shrink-0 tabular-nums">
-          {row.nome}
-        </span>
-        <span className="text-[9px] text-gray-300 leading-none">{row.capacity}lug</span>
+    <div
+      style={{
+        width: `${widthPct}%`,
+        backgroundColor: bg,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        paddingLeft: `${PAD}px`,
+        paddingRight: `${PAD}px`,
+        transition: "background-color 0.15s",
+        borderRight: "1px solid rgba(255,255,255,0.4)",
+        boxSizing: "border-box",
+      }}
+      title={`${seg.nome} — ${seg.count} assentos (${seg.start}–${seg.end})`}
+    >
+      {widthPct > 3 && (
+        <>
+          <span style={{ fontSize: `${fzAbrev}px`, fontWeight: "bold", color: fg, lineHeight: 1.1, whiteSpace: "nowrap", display: "block" }}>
+            {seg.abrev}
+          </span>
+          {widthPct > 6 && (
+            <span style={{ fontSize: `${fzQtd}px`, color: isHL ? "rgba(255,255,255,0.85)" : pal.text, lineHeight: 1.1, whiteSpace: "nowrap", display: "block", opacity: 0.85 }}>
+              {qtdTxt}
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function FilaBanco({ row, highlighted, containerW }: { row: RowData; highlighted: string | null; containerW: number }) {
+  const hasCourse = highlighted ? row.segments.some(s => s.curso_id === highlighted) : false
+  const isDimmed  = highlighted !== null && !hasCourse
+  const total     = row.capacity || 1
+  return (
+    <div style={{ opacity: isDimmed ? 0.2 : 1, transition: "opacity 0.15s" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "4px", marginBottom: "2px" }}>
+        <span style={{ fontSize: "10px", fontWeight: "bold", color: "#475569", width: "44px", textAlign: "right", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{row.nome}</span>
+        <span style={{ fontSize: "9px", color: "#94a3b8" }}>{row.capacity} lug</span>
       </div>
-
-      {/* Barra proporcional */}
-      <div className="flex h-6 rounded overflow-hidden border border-gray-200 gap-[1px] bg-gray-100 ml-11">
+      <div style={{ display: "flex", height: "28px", borderRadius: "6px", overflow: "hidden", border: "1px solid #e2e8f0", marginLeft: "48px", backgroundColor: "#f8fafc" }}>
         {row.segments.map((seg, i) => {
-          const pct = (seg.count / row.capacity) * 100
-          const pal = PALETTE[seg.colorIdx]
-          const isHL = highlighted === seg.curso_id
-
+          const pct = (seg.count / total) * 100
           return (
-            <div
-              key={i}
-              style={{ width: `${pct}%` }}
-              title={`${seg.nome} — ${seg.count} assentos (${seg.start}–${seg.end})`}
-              className={cn(
-                "flex items-center justify-center overflow-hidden transition-colors duration-150 min-w-0",
-                isHL
-                  ? cn(pal.dark, "text-white")
-                  : cn(pal.light, pal.text)
-              )}
-            >
-              {pct > 7 && (
-                <span className="text-[8px] font-bold truncate px-0.5 leading-none pointer-events-none">
-                  {pct > 16 ? seg.abrev : seg.abrev.slice(0, 3)}
-                </span>
-              )}
-            </div>
+            <SegmentCell key={i} seg={seg} widthPct={pct} totalW={containerW - 48} highlighted={highlighted} />
           )
         })}
       </div>
@@ -231,24 +177,14 @@ function FilaBanco({ row, highlighted }: { row: RowData; highlighted: string | n
   )
 }
 
-// ─────────────────────────────────────────────
-// Componente: seção (conjunto de linhas)
-// ─────────────────────────────────────────────
-
-function Secao({
-  linhas,
-  highlighted,
-}: {
-  linhas: { num: number; rows: RowData[] }[]
-  highlighted: string | null
-}) {
+function Secao({ linhas, highlighted, containerW }: { linhas: { num: number; rows: RowData[] }[]; highlighted: string | null; containerW: number }) {
   return (
-    <div className="space-y-1">
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
       {linhas.map(({ num, rows }) => (
-        <div key={num} className="flex gap-3">
+        <div key={num} style={{ display: "flex", gap: "12px" }}>
           {rows.map((row) => (
-            <div key={row.nome} className="flex-1 min-w-0">
-              <FilaBanco row={row} highlighted={highlighted} />
+            <div key={row.nome} style={{ flex: 1, minWidth: 0 }}>
+              <FilaBanco row={row} highlighted={highlighted} containerW={containerW / rows.length} />
             </div>
           ))}
         </div>
@@ -257,33 +193,16 @@ function Secao({
   )
 }
 
-// ─────────────────────────────────────────────
-// Componente: Legenda drag-and-drop
-// ─────────────────────────────────────────────
-
-function LegendaDnD({
-  detalhes,
-  colorIndex,
-  highlighted,
-  onHighlight,
-  onReorder,
-  loading,
-}: {
-  detalhes: CourseDetail[]
-  colorIndex: Record<string, number>
-  highlighted: string | null
-  onHighlight: (id: string | null) => void
-  onReorder: (ids: string[]) => void
-  loading: boolean
+// ─── Legenda drag-and-drop ────────────────────────────────────────────────────
+function LegendaDnD({ detalhes, colorIndex, highlighted, onHighlight, onReorder, loading }: {
+  detalhes: CourseDetail[]; colorIndex: Record<string, number>; highlighted: string | null
+  onHighlight: (id: string | null) => void; onReorder: (ids: string[]) => void; loading: boolean
 }) {
   const [items, setItems] = useState<CourseDetail[]>(detalhes)
   const draggingIdx = useRef<number | null>(null)
-
-  // Sincroniza quando resposta do servidor volta
   useEffect(() => { setItems(detalhes) }, [detalhes])
 
   const onDragStart = (i: number) => { draggingIdx.current = i }
-
   const onDragEnter = (i: number) => {
     if (draggingIdx.current === null || draggingIdx.current === i) return
     const next = [...items]
@@ -292,34 +211,29 @@ function LegendaDnD({
     draggingIdx.current = i
     setItems(next)
   }
-
   const onDragEnd = () => {
     draggingIdx.current = null
-    onReorder(items.map((d) => d.curso_id))
+    onReorder(items.map(d => d.curso_id))
   }
 
   return (
-    <aside className="w-60 flex-shrink-0">
-      <div className="sticky top-[57px] rounded-xl overflow-hidden border border-gray-200 bg-white shadow-sm">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+    <aside style={{ width: "240px", flexShrink: 0 }}>
+      <div style={{ position: "sticky", top: "57px", borderRadius: "12px", overflow: "hidden", border: "1px solid #e2e8f0", background: "white", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <h2 className="text-sm font-semibold text-gray-800 leading-tight">Cursos</h2>
-            <p className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
-              <ArrowUpDown className="h-2.5 w-2.5" />
+            <h2 style={{ fontSize: "13px", fontWeight: "700", color: "#1e293b", lineHeight: 1.2 }}>Cursos</h2>
+            <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
+              <ArrowUpDown style={{ width: "10px", height: "10px" }} />
               Arraste para reordenar
             </p>
           </div>
-          {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />}
+          {loading && <Loader2 style={{ width: "14px", height: "14px", color: "#64748b" }} className="animate-spin" />}
         </div>
-
-        {/* Items */}
-        <div className="divide-y divide-gray-50 max-h-[calc(100vh-130px)] overflow-y-auto">
+        <div style={{ maxHeight: "calc(100vh - 200px)", overflowY: "auto" }}>
           {items.map((d, i) => {
             const ci  = colorIndex[d.curso_id] ?? i % PALETTE.length
             const pal = PALETTE[ci]
             const isHL = highlighted === d.curso_id
-
             return (
               <div
                 key={d.curso_id}
@@ -327,32 +241,28 @@ function LegendaDnD({
                 onDragStart={() => onDragStart(i)}
                 onDragEnter={() => onDragEnter(i)}
                 onDragEnd={onDragEnd}
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={e => e.preventDefault()}
                 onMouseEnter={() => onHighlight(d.curso_id)}
                 onMouseLeave={() => onHighlight(null)}
-                className={cn(
-                  "flex items-center gap-2.5 px-3 py-2.5 cursor-grab active:cursor-grabbing select-none transition-colors group",
-                  isHL ? pal.light : "hover:bg-gray-50",
-                  loading && "pointer-events-none opacity-50"
-                )}
+                style={{
+                  display: "flex", alignItems: "center", gap: "10px",
+                  padding: "10px 12px",
+                  cursor: loading ? "not-allowed" : "grab",
+                  background: isHL ? "#f1f5f9" : "transparent",
+                  borderBottom: "1px solid #f8fafc",
+                  pointerEvents: loading ? "none" : "auto",
+                  opacity: loading ? 0.5 : 1,
+                  transition: "background 0.12s",
+                  userSelect: "none",
+                }}
               >
-                <GripVertical className="h-3.5 w-3.5 text-gray-300 group-hover:text-gray-400 flex-shrink-0 transition-colors" />
-
-                {/* Bolinha cor */}
-                <div className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", pal.dark)} />
-
-                {/* Nome + qtd */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-semibold text-gray-800 truncate leading-tight">
-                    {d.curso}
-                  </p>
-                  <p className="text-[10px] text-gray-400 leading-tight tabular-nums">
-                    {d.total_assentos} assentos
-                  </p>
+                <GripVertical style={{ width: "14px", height: "14px", color: "#cbd5e1", flexShrink: 0 }} />
+                <div style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: pal.dark, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: "11px", fontWeight: "600", color: "#334155", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.curso}</p>
+                  <p style={{ fontSize: "10px", color: "#94a3b8", fontVariantNumeric: "tabular-nums" }}>{d.total_assentos} assentos</p>
                 </div>
-
-                {/* Número de ordem */}
-                <span className="text-[10px] text-gray-300 font-mono flex-shrink-0">#{i + 1}</span>
+                <span style={{ fontSize: "10px", color: "#cbd5e1", fontFamily: "monospace", flexShrink: 0 }}>#{i + 1}</span>
               </div>
             )
           })}
@@ -362,127 +272,185 @@ function LegendaDnD({
   )
 }
 
-// ─────────────────────────────────────────────
-// Página
-// ─────────────────────────────────────────────
-
+// ─── Página principal ────────────────────────────────────────────────────────
 export default function MapaPage() {
   const params = useParams()
   const formaturaId = params?.formatura_id as string
 
   const [detalhes, setDetalhes]             = useState<CourseDetail[]>([])
-  const [vazios, setVazios]                 = useState<EmptySeats[]>([])
   const [nomeFormatura, setNomeFormatura]   = useState("")
   const [colorIndex, setColorIndex]         = useState<Record<string, number>>({})
   const [rowMap, setRowMap]                 = useState(new Map<string, RowData>())
-
   const [highlighted, setHighlighted]       = useState<string | null>(null)
   const [loadingPage, setLoadingPage]       = useState(true)
   const [loadingReorder, setLoadingReorder] = useState(false)
+  const [loadingPdf, setLoadingPdf]         = useState(false)
   const [error, setError]                   = useState<string | null>(null)
+  const [containerW, setContainerW]         = useState(900)
+  const mainRef = useRef<HTMLDivElement>(null)
+  const ordemOriginal = useRef<string[]>([])
 
-  const aplicar = useCallback(
-    (nd: CourseDetail[], nv: EmptySeats[], ci?: Record<string, number>) => {
-      const idx = ci || buildColorIndex(nd)
-      setColorIndex(idx)
-      setDetalhes(nd)
-      setVazios(nv)
-      setRowMap(buildRowMap(nd, nv, idx))
-    },
-    []
-  )
+  const aplicar = useCallback((nd: CourseDetail[], nv: EmptySeats[]) => {
+    const idx = buildColorIndex(nd)
+    setColorIndex(idx)
+    setDetalhes(nd)
+    setRowMap(buildRowMap(nd, nv, idx))
+  }, [])
 
-  // Carga inicial
+  useEffect(() => {
+    const obs = new ResizeObserver(entries => {
+      if (entries[0]) setContainerW(entries[0].contentRect.width)
+    })
+    if (mainRef.current) obs.observe(mainRef.current)
+    return () => obs.disconnect()
+  }, [])
+
   useEffect(() => {
     if (!formaturaId) return
     fetch(`${API_URL}/api/alocacao/${formaturaId}`)
-      .then((r) => r.json())
-      .then((data) => {
+      .then(r => r.json())
+      .then(data => {
         setNomeFormatura(data.formatura?.nome || "")
         aplicar(data.alocacao.detalhes, data.alocacao.assentos_vazios || [])
+        if (ordemOriginal.current.length === 0)
+          ordemOriginal.current = data.alocacao.detalhes.map((d: CourseDetail) => d.curso_id)
       })
-      .catch((e) => setError(e.message))
+      .catch(e => setError(e.message))
       .finally(() => setLoadingPage(false))
   }, [formaturaId, aplicar])
 
-  // Reordenação via legenda
-  const handleReorder = useCallback(
-    async (novaOrdem: string[]) => {
-      setLoadingReorder(true)
-      setError(null)
-      try {
-        const res = await fetch(`${API_URL}/api/alocacao/${formaturaId}/reordenar`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ordem: novaOrdem }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || "Erro ao reordenar")
-        aplicar(data.alocacao.detalhes, data.alocacao.assentos_vazios || [], colorIndex)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Erro ao reordenar")
-        setTimeout(() => setError(null), 6000)
-      } finally {
-        setLoadingReorder(false)
-      }
-    },
-    [formaturaId, colorIndex, aplicar]
-  )
+  const handleReorder = useCallback(async (novaOrdem: string[]) => {
+    setLoadingReorder(true); setError(null)
+    try {
+      const res = await fetch(`${API_URL}/api/alocacao/${formaturaId}/reordenar`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ordem: novaOrdem }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Erro ao reordenar")
+      aplicar(data.alocacao.detalhes, data.alocacao.assentos_vazios || [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao reordenar")
+      setTimeout(() => setError(null), 6000)
+    } finally { setLoadingReorder(false) }
+  }, [formaturaId, aplicar])
+
+  const handleReset = useCallback(() => {
+    if (ordemOriginal.current.length > 0) handleReorder(ordemOriginal.current)
+  }, [handleReorder])
+
+  const handleDownload = useCallback(async () => {
+    setLoadingPdf(true)
+    try {
+      const response = await fetch(`${API_URL}/api/pdf/mapa-assentos/${formaturaId}`, {
+        method: "GET", headers: { Accept: "application/pdf" },
+      })
+      if (!response.ok) { const err = await response.json(); throw new Error(err.error || "Erro PDF") }
+      const blob = await response.blob()
+      const url  = window.URL.createObjectURL(blob)
+      const a    = document.createElement("a")
+      a.href = url
+      a.download = `mapa-assentos-${nomeFormatura.replace(/\s+/g, "-")}.pdf`
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao gerar PDF")
+      setTimeout(() => setError(null), 5000)
+    } finally { setLoadingPdf(false) }
+  }, [formaturaId, nomeFormatura])
 
   const { before, after } = groupRows(rowMap)
 
-  // ── Loading ──
-  if (loadingPage) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-gray-300" />
-          <p className="text-sm text-gray-400">Carregando mapa...</p>
-        </div>
+  if (loadingPage) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+        <Loader2 style={{ width: "32px", height: "32px", color: "#94a3b8" }} className="animate-spin" />
+        <p style={{ fontSize: "14px", color: "#64748b" }}>Carregando mapa...</p>
       </div>
-    )
-  }
+    </div>
+  )
 
-  if (error && detalhes.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-8 bg-gray-50">
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 max-w-md flex gap-3">
-          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700">{error}</p>
-        </div>
+  if (error && detalhes.length === 0) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc", padding: "32px" }}>
+      <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: "12px", padding: "24px", maxWidth: "480px", display: "flex", gap: "12px" }}>
+        <AlertCircle style={{ width: "20px", height: "20px", color: "#e11d48", flexShrink: 0 }} />
+        <p style={{ fontSize: "14px", color: "#be123c" }}>{error}</p>
       </div>
-    )
-  }
+    </div>
+  )
 
-  // ── Render ──
+  const busy = loadingReorder || loadingPdf
+
   return (
-    <div className="min-h-screen bg-gray-50">
-
+    <div style={{ minHeight: "100vh", background: "#f1f5f9" }}>
       {/* Topbar */}
-      <header className="sticky top-0 z-50 bg-white border-b border-gray-200 px-6 py-3.5 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <h1 className="text-sm font-semibold text-gray-900 truncate">{nomeFormatura}</h1>
-          <span className="text-gray-300 text-xs">•</span>
-          <span className="text-xs text-gray-400">Mapa de Assentos</span>
+      <header style={{
+        position: "sticky", top: 0, zIndex: 50,
+        background: "rgba(255,255,255,0.95)",
+        backdropFilter: "blur(12px)",
+        borderBottom: "1px solid #e2e8f0",
+        padding: "10px 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+          <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#3b82f6", flexShrink: 0 }} />
+          <h1 style={{ fontSize: "14px", fontWeight: "700", color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nomeFormatura}</h1>
+          <span style={{ color: "#cbd5e1", fontSize: "12px" }}>•</span>
+          <span style={{ fontSize: "12px", color: "#64748b" }}>Mapa de Assentos</span>
         </div>
-
-        {(loadingReorder || error) && (
-          <div className={cn(
-            "flex items-center gap-2 text-xs px-3 py-1.5 rounded-full",
-            loadingReorder
-              ? "text-blue-600 bg-blue-50"
-              : "text-red-600 bg-red-50 border border-red-200"
-          )}>
-            {loadingReorder && <Loader2 className="h-3 w-3 animate-spin" />}
-            {loadingReorder ? "Reordenando e salvando..." : error}
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          {(busy || error) && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: "6px", fontSize: "12px",
+              padding: "6px 12px", borderRadius: "20px",
+              background: busy ? "#f8fafc" : "#fff1f2",
+              color: busy ? "#475569" : "#be123c",
+              border: busy ? "1px solid #e2e8f0" : "1px solid #fecdd3"
+            }}>
+              {busy && <Loader2 style={{ width: "12px", height: "12px" }} className="animate-spin" />}
+              {loadingReorder ? "Reordenando..." : loadingPdf ? "Gerando PDF..." : error}
+            </div>
+          )}
+          {/* Reset */}
+          <button
+            onClick={handleReset}
+            disabled={busy}
+            title="Voltar à ordem original da planilha"
+            style={{
+              display: "flex", alignItems: "center", gap: "6px",
+              padding: "6px 14px", fontSize: "12px", fontWeight: "600",
+              color: "#475569", background: "white",
+              border: "1px solid #e2e8f0", borderRadius: "8px",
+              cursor: busy ? "not-allowed" : "pointer",
+              opacity: busy ? 0.5 : 1, transition: "all 0.15s"
+            }}
+          >
+            <RotateCcw style={{ width: "13px", height: "13px" }} />
+            Resetar
+          </button>
+          {/* Exportar PDF */}
+          <button
+            onClick={handleDownload}
+            disabled={busy}
+            style={{
+              display: "flex", alignItems: "center", gap: "6px",
+              padding: "6px 16px", fontSize: "12px", fontWeight: "700",
+              color: "white",
+              background: busy ? "#93c5fd" : "#3b82f6",
+              border: "none", borderRadius: "8px",
+              cursor: busy ? "not-allowed" : "pointer",
+              boxShadow: busy ? "none" : "0 2px 8px rgba(59,130,246,0.35)",
+              transition: "all 0.15s"
+            }}
+          >
+            <Download style={{ width: "13px", height: "13px" }} />
+            Exportar PDF
+          </button>
+        </div>
       </header>
 
       {/* Layout */}
-      <div className="flex gap-5 p-5 max-w-[1600px] mx-auto">
-
-        {/* Legenda drag-and-drop */}
+      <div style={{ display: "flex", gap: "20px", padding: "20px", maxWidth: "1600px", margin: "0 auto" }}>
         <LegendaDnD
           detalhes={detalhes}
           colorIndex={colorIndex}
@@ -491,31 +459,43 @@ export default function MapaPage() {
           onReorder={handleReorder}
           loading={loadingReorder}
         />
-
-        {/* Mapa */}
         <main
-          className={cn(
-            "flex-1 min-w-0 space-y-5 transition-opacity duration-300",
-            loadingReorder && "opacity-30 pointer-events-none select-none"
-          )}
+          ref={mainRef}
+          style={{
+            flex: 1, minWidth: 0,
+            display: "flex", flexDirection: "column", gap: "20px",
+            opacity: loadingReorder ? 0.3 : 1,
+            pointerEvents: loadingReorder ? "none" : "auto",
+            transition: "opacity 0.3s"
+          }}
         >
           {/* Palco */}
-          <div className="flex justify-center">
-            <div className="bg-gray-900 text-white px-16 py-2.5 rounded-lg text-sm font-bold tracking-widest">
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <div style={{
+              background: "#1e293b",
+              color: "white",
+              padding: "10px 64px", borderRadius: "10px",
+              fontSize: "14px", fontWeight: "800", letterSpacing: "0.15em",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.15)"
+            }}>
               🎭 PALCO 🎭
             </div>
           </div>
 
-          {/* Antes do corredor */}
-          <Secao linhas={before} highlighted={highlighted} />
+          <Secao linhas={before} highlighted={highlighted} containerW={containerW} />
 
-          {/* Corredor */}
           {after.length > 0 && (
             <>
-              <div className="bg-gray-600 text-white text-center py-1.5 rounded-lg text-xs font-bold tracking-widest">
+              <div style={{
+                background: "#334155",
+                color: "#e2e8f0",
+                textAlign: "center", padding: "6px 0", borderRadius: "8px",
+                fontSize: "11px", fontWeight: "700", letterSpacing: "0.15em",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.1)"
+              }}>
                 ══ CORREDOR ══
               </div>
-              <Secao linhas={after} highlighted={highlighted} />
+              <Secao linhas={after} highlighted={highlighted} containerW={containerW} />
             </>
           )}
         </main>
